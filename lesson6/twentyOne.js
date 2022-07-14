@@ -23,10 +23,14 @@ const CARD_DISPLAY = {
 // Player index and dealer index are used for the hands array
 const PLAYER_INDEX = 1;
 const DEALER_INDEX = 0;
-const TWENTY_ONE = 21;
 const ACE_HIGH_VALUE = 11;
 const ACE_LOW_VALUE = 1;
 const PLAY_AGAIN_OPTIONS = ['yes', 'no', 'y', 'n'];
+const HIT_OR_STAY_OPTIONS = ["hit", "stay", "h", "s"];
+const NUM_ROUND_WINS_TO_WIN_MATCH = 5;
+// Target points is when the user would bust if they exceeded it
+const TARGET_POINTS = 21;
+// Dealer with only stay when at or above the threshold
 const DEALER_STAY_THRESHOLD = 17;
 
 // Outputs a message to console preceded by "=>" for formatting
@@ -127,7 +131,7 @@ function displayNonFinalCards(hands, index) {
 // assuming multiple aces, as long as the new hand value is
 // less than or equal to 21
 function adjustAcesValues(handValue, numAces) {
-  while ((handValue + (ACE_HIGH_VALUE - ACE_LOW_VALUE) <= TWENTY_ONE)
+  while ((handValue + (ACE_HIGH_VALUE - ACE_LOW_VALUE) <= TARGET_POINTS)
     && numAces > 0) {
     handValue += ACE_HIGH_VALUE - ACE_LOW_VALUE;
     numAces--;
@@ -164,8 +168,8 @@ function calculateHandValue(hands, index) {
 // Returns true if the player with the given hand
 // has busted (has a hand value over 21)
 // Returns false otherwise
-function busted(hands, index) {
-  return calculateHandValue(hands, index) > 21;
+function busted(handValue) {
+  return handValue > TARGET_POINTS;
 }
 
 // Returns true if the player does want to play again
@@ -182,6 +186,19 @@ function getPlayAgain() {
   }
 }
 
+// Returns true for stay, returns false for hit
+function getHitOrStay() {
+  while (true) {
+    prompt("Hit or Stay (h or s)?");
+    let answer = readline.question().toLowerCase();
+    if (!HIT_OR_STAY_OPTIONS.includes(answer)) {
+      prompt("Not a valid response, try again!");
+      continue;
+    }
+    return (answer === 's' || answer === "stay");
+  }
+}
+
 // Returns "stay" if the dealer should stay (hand value >= 17)
 // Otherwise, returns "hit"
 function dealerHitOrStay(hands) {
@@ -193,9 +210,7 @@ function dealerHitOrStay(hands) {
   }
 }
 
-function determineWinner(hands) {
-  let playerHandValue = calculateHandValue(hands, PLAYER_INDEX);
-  let dealerHandValue = calculateHandValue(hands, DEALER_INDEX);
+function determineWinner(playerHandValue, dealerHandValue) {
   if (playerHandValue > dealerHandValue) {
     return "player";
   } else if (dealerHandValue > playerHandValue) {
@@ -218,67 +233,143 @@ function displayWinner(winner) {
   }
 }
 
+function incrementWins(wins, winner) {
+  if (winner === "player") {
+    wins[PLAYER_INDEX]++;
+  } else if (winner === "dealer") {
+    wins[DEALER_INDEX]++;
+  }
+}
+
+function displayWins(wins) {
+  prompt(`The dealer has ${wins[DEALER_INDEX]} round wins.`);
+  prompt(`The player has ${wins[PLAYER_INDEX]} round wins.`);
+}
+
+function determineMatchWinner(wins) {
+  if (wins[PLAYER_INDEX] === NUM_ROUND_WINS_TO_WIN_MATCH) {
+    prompt("\nThe player has won the match!");
+    return true;
+  } else if (wins[DEALER_INDEX] === NUM_ROUND_WINS_TO_WIN_MATCH) {
+    prompt("\nThe dealer has won the match!");
+    return true;
+  }
+  return false;
+}
+
+// Determines the winner, if there was a bust, winner is the one who did not
+// If no busts, compares the scores using determineWinner()
+// Prints the winner
+// Prompts user to play again
+// Returns true if the user does want to play again, false otherwise
+function endOfRound(wins, hands, playerHandValue, dealerHandValue,
+  bustedIndex = -1) {
+  displayEndOfGameCards(hands);
+  let winner;
+  if (bustedIndex === PLAYER_INDEX) {
+    prompt("Player busted!");
+    winner = "dealer";
+  } else if (bustedIndex === DEALER_INDEX) {
+    prompt("Dealer busted!");
+    winner = "player";
+  } else {
+    winner = determineWinner(playerHandValue, dealerHandValue);
+  }
+  incrementWins(wins, winner);
+  displayWinner(winner);
+  displayWins(wins);
+  return getPlayAgain();
+}
+
 // Main game loop starts here
 while (true) {
   console.clear();
-  // Prepare for dealing cards to player and dealer
-  let deck = initializeDeck();
-  shuffleDeck(deck);
+  let wins = [0, 0];
+  let playAgain;
+  let matchWinner = false;
+  prompt("Welcome to Twenty-One!");
+  prompt("First to win 5 rounds, wins the match!");
 
-  // Deal cards to player and dealer
-  let hands = initialDealToPlayerAndDealer(deck);
-
-  let playerBusted = false;
-  // Player takes their turn
+  // Loop for each round of the game
   while (true) {
-    displayNonFinalCards(hands, DEALER_INDEX);
-    displayNonFinalCards(hands, PLAYER_INDEX);
+    console.log("\n");
 
-    prompt("Hit or stay?");
-    let answer = readline.question().toLowerCase();
-    if (answer === "stay") break;
+    // Prepare for dealing cards to player and dealer
+    let deck = initializeDeck();
+    shuffleDeck(deck);
 
-    // Hit: add a card to the player's hand
-    dealToPlayer(deck, hands[PLAYER_INDEX]);
+    // Deal cards to player and dealer
+    let hands = initialDealToPlayerAndDealer(deck);
+    let playerHandValue = calculateHandValue(hands, PLAYER_INDEX);
+    let dealerHandValue = calculateHandValue(hands, DEALER_INDEX);
 
-    playerBusted = busted(hands, PLAYER_INDEX);
-    if (playerBusted) break;
+    // Player takes their turn
+    let playerBusted = false;
+    while (true) {
+      displayNonFinalCards(hands, DEALER_INDEX);
+      displayNonFinalCards(hands, PLAYER_INDEX);
+
+      if (getHitOrStay()) break;
+
+      // Hit: add a card to the player's hand
+      dealToPlayer(deck, hands[PLAYER_INDEX]);
+
+      playerHandValue = calculateHandValue(hands, PLAYER_INDEX);
+      playerBusted = busted(playerHandValue);
+      if (playerBusted) break;
+    }
+
+    if (playerBusted) {
+      playAgain = endOfRound(wins, hands, playerHandValue,
+        dealerHandValue, PLAYER_INDEX);
+      matchWinner = determineMatchWinner(wins);
+      if (matchWinner) break;
+      if (!playAgain) break;
+      else continue;
+    } else {
+      prompt("You chose to stay!");
+    }
+
+    // Dealer takes their turn
+    let dealerBusted = false;
+    while (true) {
+      let hitOrStay = dealerHitOrStay(hands);
+      if (hitOrStay === "stay") break;
+
+      // Hit: add a card to the dealer's hand
+      dealToPlayer(deck, hands[DEALER_INDEX]);
+      dealerHandValue = calculateHandValue(hands, DEALER_INDEX);
+      dealerBusted = busted(dealerHandValue);
+      if (dealerBusted) break;
+    }
+
+    if (dealerBusted) {
+      playAgain = endOfRound(wins, hands, playerHandValue,
+        dealerHandValue, DEALER_INDEX);
+      matchWinner = determineMatchWinner(wins);
+      if (matchWinner) break;
+      if (!playAgain) break;
+      else continue;
+    } else {
+      prompt("Dealer chose to stay!");
+    }
+
+    // Neither the player nor the dealer busted
+    // Have to compare hand values to determine the winner
+    playAgain = endOfRound(wins, hands, playerHandValue, dealerHandValue);
+    matchWinner = determineMatchWinner(wins);
+    if (matchWinner) break;
+    if (!playAgain) break;
   }
 
-  if (playerBusted) {
-    displayEndOfGameCards(hands);
-    prompt("You busted! Dealer wins!");
-    if (!getPlayAgain()) break;
-    else continue;
-  } else {
-    prompt("You chose to stay!");
+  if (matchWinner) {
+    prompt("The match has finished.");
+    if (getPlayAgain()) continue;
+    else break;
   }
 
-  // Dealer takes their turn
-  let dealerBusted = false;
-  while (true) {
-    let hitOrStay = dealerHitOrStay(hands);
-    if (hitOrStay === "stay") break;
-
-    // Hit: add a card to the dealer's hand
-    dealToPlayer(deck, hands[DEALER_INDEX]);
-    dealerBusted = busted(hands, DEALER_INDEX);
-    if (dealerBusted) break;
-  }
-
-  if (dealerBusted) {
-    displayEndOfGameCards(hands);
-    prompt("Dealer busted! You win!");
-    if (!getPlayAgain()) break;
-    else continue;
-  } else {
-    prompt("Dealer chose to stay!");
-  }
-
-  // Neither the player nor the dealer busted
-  // Have to compare hand values to determine the winner
-  displayEndOfGameCards(hands);
-  let winner = determineWinner(hands);
-  displayWinner(winner);
-  if (!getPlayAgain()) break;
+  // End the match if the player did not want to play another round
+  if (!playAgain) break;
 }
+
+prompt("Thanks for playing Twenty-One!");
